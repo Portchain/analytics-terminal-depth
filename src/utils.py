@@ -6,10 +6,13 @@ from skimage.draw import polygon2mask
 from scipy import interpolate
 from tqdm import tqdm as tqdm
 import logging
+import matplotlib.pyplot as plt
 
 logger = logging.getLogger(__name__)
 from portcall.utils import spherical_distance_exact
 
+from typing import List
+from portcall.vessel import VesselTrack
 
 class MapGrid:
     def __init__(self, first_axis, second_axis, data: (dict, None) = None):
@@ -23,18 +26,18 @@ class MapGrid:
         self._second_axis = second_axis
 
         if data is None:
-            self._data = dict()
+            self._data = None
         else:
-            self._data = data
+            self.set_data(data)
 
-    def set_data_by_name(self, data: np.ndarray, name: str):
+    def set_data(self, data: np.ndarray):
         assert data.ndim == 2
         assert self._first_points == data.shape[1]
         assert self._second_points == data.shape[0]
-        self._data[name] = data
+        self._data = data
 
-    def get_data_by_name(self, name: str):
-        return self._data[name]
+    def get_data(self):
+        return self._data
 
     def copy(self):
         return MapGrid(self._first_axis,
@@ -72,11 +75,11 @@ class MapGrid:
         for polygon in polygons:
             idx_polygon = self.get_indices_of_coordinates(polygon)
             temp = polygon2mask(self.map_size, idx_polygon)  # TODO: speed up using opencv
-            image = temp | image
+            image = np.logical_or(image, temp)
         return image
 
-    def interpolate(self, lons: np.ndarray, lats: np.ndarray, name: str):
-        data = self._data[name]
+    def interpolate(self, lons: np.ndarray, lats: np.ndarray):
+        data = self._data
         depth_func = interpolate.RectBivariateSpline(self._first_axis, self._second_axis, data.T)
         input_sz = lons.shape
 
@@ -93,6 +96,19 @@ class MapGrid:
     def get_second_axis(self):
         return self._second_axis
 
+    def contour(self, ax=None, fill=False, colorbar=False, **kwargs):
+        if ax is None:
+            _, ax = plt.subplots()
+
+        data = self._data
+        if fill:
+            im = ax.contourf(self._first_axis, self._second_axis, data, cmap='ocean_r', **kwargs)
+        else:
+            im = ax.contour(self._first_axis, self._second_axis, data, cmap='ocean_r', **kwargs)
+
+        if colorbar:
+            fig = ax.get_figure()
+            fig.colorbar(im, orientation=colorbar)
 
 def rotate_vector(v, angle):
     angle = np.deg2rad(angle)
@@ -102,8 +118,7 @@ def rotate_vector(v, angle):
     return rot_mat @ v
 
 
-def find_plateaus(y, min_value=5):
-    half_width = 1
+def find_plateaus(y, min_value=5, half_width=1):
     step = np.hstack((np.ones(half_width), -1 * np.ones(half_width)))
     peak = np.array([-0.5, 1, -0.5])
     d_step = np.convolve(y, step, mode='same')
@@ -140,7 +155,9 @@ def clean_bool_sequence(seq, n=3):
 
 
 class DraftContainer:
-    def __init__(self, dimensions: tuple):
+    def __init__(self, grid: MapGrid, n: int):
+        self._base_grid = MapGrid(grid.get_first_axis(), grid.get_second_axis())
+        dimensions = (n, *grid.map_size)
         assert len(dimensions) == 3
         self._data = np.tile(np.nan, dimensions).astype(np.float16)
 
@@ -149,52 +166,39 @@ class DraftContainer:
         draft[mask] = value
         self._data[layer] = draft
 
-    def create_depth_map(self):
-        q = 0.90
-        count_limit = 5
-        depth_map = np.nanquantile(self._data, q, axis=0)
-        # depth_dynamic = np.nanmax(dynamic_drafts,axis=0)
-        count_map = np.sum(~np.isnan(self._data), axis=0)
-        depth_map[count_map < count_limit] = np.nan
+    def create_depth_map(self, count_limit=5, agg=None):
+        if agg is None:
+            agg = lambda x: np.nanquantile(x, 0.90, axis=0)
+
+        depth_map = agg(self._data)
+
+        counts = self.create_count_map().get_data()
+        depth_map[counts < count_limit] = np.nan
         depth_map[np.isnan(depth_map)] = 0
-        return depth_map, count_map
+
+        map_ = self._base_grid.copy()
+        map_.set_data(depth_map)
+        return map_
+
+    def create_count_map(self):
+        count_map = np.sum(~np.isnan(self._data), axis=0)
+
+        map_ = self._base_grid.copy()
+        map_.set_data(count_map)
+        return map_
 
 
-def calculate_depth_map(terminal: Terminal,
-                        start_time='2019-10-15',
-                        end_time='2019-11-01'):
-    # Create a grid for the map
-    logger.info('Initialize map grid')
-    lon1, lat1 = terminal.outline.min(axis=0)
-    lon2, lat2 = terminal.outline.max(axis=0)
+def create_draft_histogram_map(tracks:List[VesselTrack], terminal: Terminal, loa_buffer=30) -> (DraftContainer, DraftContainer):
 
-    resolution = 10  # [m]
-
-    map_width = spherical_distance_exact(np.array([lon1, lat1]), np.array([lon2, lat1]))
-    map_height = spherical_distance_exact(np.array([lon1, lat1]), np.array([lon1, lat2]))
-
-    n_lon = np.floor(map_width/resolution)
-    n_lat = np.floor(map_height/resolution)
-
-    logger.info('Calculating grid on map of size %d x %d with resolution of %.1f m' % (n_lon, n_lat, resolution))
-    lon_axis = np.linspace(lon1, lon2, n_lon)
-    lat_axis = np.linspace(lat1, lat2, n_lat)
-    m = MapGrid(lon_axis, lat_axis)
-
-    logger.info('Load AIS data')
-    with AISTable() as adb:
-        tracks = adb.fetch_tracks(lat_lim=m.second_lim, lon_lim=m.first_lim,
-                                  start_time=start_time,
-                                  end_time=end_time)
-        tracks = list(tracks)
+    m = create_map_grid_of_terminal(terminal)
 
     # Extract historic drafts
     logger.info('Collect draft information in terminal')
-    dynamic_drafts = DraftContainer((len(tracks), *m.map_size))
-    static_drafts = DraftContainer((len(tracks), *m.map_size))
+    dynamic_drafts = DraftContainer(m, len(tracks))
+    static_drafts = DraftContainer(m, len(tracks))
 
     for i, track in tqdm(enumerate(tracks), total=len(tracks)):
-        polygons = [v.get_terminal_footprint(buffer=30 / 2) for v in track.get_vessel_generator()]
+        polygons = [v.get_vessel_footprint(buffer=loa_buffer / 2) for v in track.get_vessel_generator()]
         dynamic_footprint = m.mask_of_polygons(polygons)
 
         draft_value = np.nanmax(track.draft)
@@ -202,30 +206,46 @@ def calculate_depth_map(terminal: Terminal,
             draft_value = 1
 
         bp = BerthProbability(track, terminal)
-        track = track[bp.is_points_berthed()]
-        polygons = [v.get_terminal_footprint(buffer=30 / 2) for v in track.get_vessel_generator()]
+        sub = track[bp.is_points_berthed() > 0.9]
+        polygons = [v.get_vessel_footprint(buffer=loa_buffer / 2) for v in sub.get_vessel_generator()]
         static_footprint = m.mask_of_polygons(polygons)
 
         dynamic_drafts.insert_mask(i, dynamic_footprint, draft_value)
         static_drafts.insert_mask(i, static_footprint, draft_value)
 
-    # Create depth and count maps
-    logger.info('Create depth map')
-    depth_static, count_static = static_drafts.create_depth_map()
-    depth_dynamic, count_dynamic = dynamic_drafts.create_depth_map()
-
-    static = m.copy()
-    dynamic = m.copy()
-
-    static.set_data_by_name(depth_static, name='depth')
-    static.set_data_by_name(count_static, name='count')
-    dynamic.set_data_by_name(depth_dynamic, name='depth')
-    dynamic.set_data_by_name(count_dynamic, name='count')
-
-    return static, dynamic
+    return static_drafts, dynamic_drafts
 
 
-def calculate_depth_map_at_quay(quay: Quay, static_map: MapGrid):
+def import_ais_data(terminal, start_time, end_time):
+    # Create a grid for the map
+    logger.info('Initialize map grid')
+    m = create_map_grid_of_terminal(terminal)
+    logger.info('Load AIS data')
+    with AISTable() as adb:
+        tracks = adb.fetch_tracks(lat_lim=m.second_lim,
+                                  lon_lim=m.first_lim,
+                                  start_time=start_time,
+                                  end_time=end_time)
+        tracks = list(tracks)
+    return tracks
+
+
+def create_map_grid_of_terminal(terminal: Terminal):
+    lon1, lat1 = terminal.outline.min(axis=0)
+    lon2, lat2 = terminal.outline.max(axis=0)
+    resolution = 10  # [m]
+    map_width = spherical_distance_exact(np.array([lon1, lat1]), np.array([lon2, lat1]))
+    map_height = spherical_distance_exact(np.array([lon1, lat1]), np.array([lon1, lat2]))
+    n_lon = np.floor(map_width / resolution)
+    n_lat = np.floor(map_height / resolution)
+    logger.info('Calculating grid on map of size %d x %d with resolution of %.1f m' % (n_lon, n_lat, resolution))
+    lon_axis = np.linspace(lon1, lon2, n_lon)
+    lat_axis = np.linspace(lat1, lat2, n_lat)
+    m = MapGrid(lon_axis, lat_axis)
+    return m
+
+
+def calculate_quay_aligned_map(quay: Quay, static_map: MapGrid): #TODO: change name to calculate_quay_aligned_map
     width = 100  # [m]
     resolution_parallel = 10  # [m]
     resolution_normal = 10  # [m]
@@ -249,7 +269,7 @@ def calculate_depth_map_at_quay(quay: Quay, static_map: MapGrid):
 
     grid_geodetic = quay.to_geodetic(grid)
 
-    depth_2d = static_map.interpolate(grid_geodetic[..., 0], grid_geodetic[..., 1], 'depth')
+    depth_2d = static_map.interpolate(grid_geodetic[..., 0], grid_geodetic[..., 1])
 
     # select the half of normal to quay where the water is
     positive_side = depth_2d[n_normal:]
@@ -260,14 +280,14 @@ def calculate_depth_map_at_quay(quay: Quay, static_map: MapGrid):
     else:
         depth_2d = negative_side
 
-    m = MapGrid(axis_parallel, axis_normal, {'depth': depth_2d})
+    m = MapGrid(axis_parallel, axis_normal, data=depth_2d)
     return m
 
 
 def calculate_depth_profile(m: MapGrid):
     # extract 1D information
-    depth_2d = m.get_data_by_name('depth')
-    depth_1d = np.quantile(depth_2d, 0.90, axis=0)
+    depth_2d = m.get_data()
+    depth_1d = np.nanquantile(depth_2d, 0.70, axis=0)
     axis_parallel = m.get_first_axis()
     return axis_parallel, depth_1d
 
@@ -278,7 +298,7 @@ def clean_depth_profile(position: np.ndarray, depth: np.ndarray):
 
     # find plateaus
     select = find_plateaus(depth)
-    clean_select = clean_bool_sequence(select, n=3)
+    clean_select = clean_bool_sequence(select, n=1)
     clean_depth = depth[clean_select]
     clean_position = position[clean_select]
 
