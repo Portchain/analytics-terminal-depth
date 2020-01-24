@@ -1,17 +1,16 @@
-from portcall.data import AISTable
-from portcall.portcall import BerthProbability
-from portcall.terminal import Terminal, Quay
-from portcall.vessel import VesselTrack
-from portcall.utils import spherical_distance_exact, geodetic_to_enu, enu_to_geodetic
-
 from tqdm import tqdm as tqdm
 import logging
 from typing import List
 
 import numpy as np
-from skimage.draw import polygon2mask
+from matplotlib import pyplot as plt
 from scipy import interpolate
-import matplotlib.pyplot as plt
+from skimage.draw import polygon2mask
+
+from portcall.terminal import Terminal, Quay
+from portcall.vessel import VesselTrack
+from portcall.utils import geodetic_to_enu, enu_to_geodetic, spherical_distance_exact
+from portcall.portcall import BerthProbability
 
 logger = logging.getLogger(__name__)
 
@@ -121,129 +120,6 @@ def rotate_vector(v, angle):
     return rot_mat @ v
 
 
-def find_plateaus(y, min_value=5, half_width=1):
-    step = np.hstack((np.ones(half_width), -1 * np.ones(half_width)))
-    peak = np.array([-0.5, 1, -0.5])
-    d_step = np.convolve(y, step, mode='same')
-    d_peak = np.convolve(y, peak, mode='same')
-
-    upper_lim = 0.5
-    lower_lim = -0.5
-
-    select = (lower_lim <= d_step) & (d_step <= upper_lim) \
-             & (lower_lim <= d_peak) & (d_peak <= upper_lim) \
-             & (y > min_value)
-
-    return select
-
-
-def shrink_bool_sequence(seq, n=1):
-    for _ in range(n):
-        seq = (np.pad(seq, [1, 0], 'constant', constant_values=True)
-               & np.pad(seq, [0, 1], 'constant', constant_values=True))[1:]
-    return seq
-
-
-def grow_bool_sequence(seq, n=1):
-    for _ in range(n):
-        seq = (np.pad(seq, [0, 1], 'constant', constant_values=False)
-               | np.pad(seq, [1, 0], 'constant', constant_values=False))[:-1]
-    return seq
-
-
-def clean_bool_sequence(seq, n=3):
-    temp = shrink_bool_sequence(seq, n=n)
-    clean_seq = grow_bool_sequence(temp, n=n)
-    return clean_seq
-
-
-class DraftContainer:
-    def __init__(self, grid: MapGrid, n: int):
-        self._base_grid = MapGrid(grid.get_first_axis(), grid.get_second_axis())
-        dimensions = (n, *grid.map_size)
-        assert len(dimensions) == 3
-        self._data = np.tile(np.nan, dimensions).astype(np.float16)
-
-    def insert_mask(self, layer, mask, value):
-        draft = self._data[layer]
-        draft[mask] = value
-        self._data[layer] = draft
-
-    def create_depth_map(self, count_limit=5, agg=None):
-        if agg is None:
-            agg = lambda x: np.nanquantile(x, 0.90, axis=0)
-
-        depth_map = agg(self._data)
-
-        counts = self.create_count_map().get_data()
-        depth_map[counts < count_limit] = np.nan
-        depth_map[np.isnan(depth_map)] = 0
-
-        map_ = self._base_grid.copy()
-        map_.set_data(depth_map)
-        return map_
-
-    def create_count_map(self):
-        count_map = np.sum(~np.isnan(self._data), axis=0)
-
-        map_ = self._base_grid.copy()
-        map_.set_data(count_map)
-        return map_
-
-
-def create_draft_histogram_map(tracks: List[VesselTrack],
-                               terminal: Terminal,
-                               loa_buffer=30,
-                               terminal_buffer=100,
-                               resolution=10) -> (DraftContainer, DraftContainer):
-    m = create_map_grid_of_terminal(terminal, buffer=terminal_buffer,resolution=resolution)
-
-    # Extract historic drafts
-    logger.info('Collect draft information in terminal')
-    dynamic_drafts = DraftContainer(m, len(tracks))
-    static_drafts = DraftContainer(m, len(tracks))
-
-    for i, track in tqdm(enumerate(tracks), total=len(tracks)):
-        # polygons = [v.get_vessel_footprint(buffer=loa_buffer / 2) for v in track.get_vessel_generator()]
-        sample = (track.speed > 5) | np.random.binomial(1, 0.5, (len(track))).astype(bool)
-        sub = track[sample]
-        polygons = [v.get_vessel_footprint(buffer=loa_buffer / 2) for v in sub.get_vessel_generator()]
-        dynamic_footprint = m.mask_of_polygons(polygons)
-
-        draft_value = np.nanmax(track.draft)
-        if not draft_value:
-            draft_value = 1
-
-        dynamic_drafts.insert_mask(i, dynamic_footprint, draft_value)
-
-        bp = BerthProbability(track, terminal)
-        sub = track[bp.is_points_berthed()]
-        if len(sub)>0:
-            polygons = [v.get_vessel_footprint(buffer=loa_buffer / 2) for v in sub.get_vessel_generator()]
-            # v = sub.get_aggregated_vessel()  # vessel with median properties  # TODO: why does it make middle quay in Genoa disappear in depth map.
-            # v = sub.get_vessel_at_index(0)
-            # polygons = [v.get_vessel_footprint(buffer=loa_buffer / 2)]
-            static_footprint = m.mask_of_polygons(polygons)
-
-            static_drafts.insert_mask(i, static_footprint, draft_value)
-
-    return static_drafts, dynamic_drafts
-
-
-def import_ais_data(terminal, start_time, end_time):
-    # Create a grid for the map
-    lon1, lat1 = np.min(terminal.outline, axis=0)
-    lon2, lat2 = np.max(terminal.outline, axis=0)
-    logger.info('Load AIS data')
-    with AISTable() as adb:
-        tracks = adb.fetch_tracks(lat_lim=(lat1, lat2),
-                                  lon_lim=(lon1, lon2),
-                                  start_time=start_time,
-                                  end_time=end_time)
-        tracks = list(tracks)
-    return tracks
-
-
 def create_map_grid_of_terminal(terminal: Terminal, buffer=50, resolution=10):
     lon1, lat1 = terminal.outline.min(axis=0)
     lon2, lat2 = terminal.outline.max(axis=0)
@@ -305,51 +181,74 @@ def calculate_quay_aligned_map(quay: Quay, static_map: MapGrid):  # TODO: change
     return m
 
 
-def calculate_depth_profile(m: MapGrid):
-    # extract 1D information
-    depth_2d = m.get_data()
-    depth_1d = np.nanquantile(depth_2d, 0.95, axis=0)
-    axis_parallel = m.get_first_axis()
-    return axis_parallel, depth_1d
+class DraftContainer:
+    def __init__(self, grid: MapGrid, n: int):
+        self._base_grid = MapGrid(grid.get_first_axis(), grid.get_second_axis())
+        dimensions = (n, *grid.map_size)
+        assert len(dimensions) == 3
+        self._data = np.tile(np.nan, dimensions).astype(np.float16)
+
+    def insert_mask(self, layer, mask, value):
+        draft = self._data[layer]
+        draft[mask] = value
+        self._data[layer] = draft
+
+    def create_depth_map(self, count_limit=5, agg=None):
+        if agg is None:
+            agg = lambda x: np.nanquantile(x, 0.90, axis=0)
+
+        depth_map = agg(self._data)
+
+        counts = self.create_count_map().get_data()
+        depth_map[counts < count_limit] = np.nan
+        depth_map[np.isnan(depth_map)] = 0
+
+        map_ = self._base_grid.copy()
+        map_.set_data(depth_map)
+        return map_
+
+    def create_count_map(self):
+        count_map = np.sum(~np.isnan(self._data), axis=0)
+
+        map_ = self._base_grid.copy()
+        map_.set_data(count_map)
+        return map_
 
 
-def clean_depth_profile(position: np.ndarray, depth: np.ndarray, depth_unit=1):
-    # discretize the depth
-    depth = np.round(depth / depth_unit) * depth_unit
+def create_draft_histogram_map(tracks: List[VesselTrack],
+                               terminal: Terminal,
+                               loa_buffer=30,
+                               terminal_buffer=100,
+                               resolution=10) -> (DraftContainer, DraftContainer):
+    m = create_map_grid_of_terminal(terminal, buffer=terminal_buffer, resolution=resolution)
 
-    # find plateaus
-    select = find_plateaus(depth)
-    clean_select = clean_bool_sequence(select, n=1)
-    clean_depth = depth[clean_select]
-    clean_position = position[clean_select]
+    # Extract historic drafts
+    logger.info('Collect draft information in terminal')
+    dynamic_drafts = DraftContainer(m, len(tracks))
+    static_drafts = DraftContainer(m, len(tracks))
 
-    # interpolate missing parts
-    if len(clean_position) > 0:
-        f = interpolate.interp1d(clean_position,
-                                 clean_depth,
-                                 kind='nearest',
-                                 fill_value='extrapolate')
+    for i, track in tqdm(enumerate(tracks), total=len(tracks)):
+        # polygons = [v.get_vessel_footprint(buffer=loa_buffer / 2) for v in track.get_vessel_generator()]
+        sample = (track.speed > 5) | np.random.binomial(1, 0.5, (len(track))).astype(bool)
+        sub = track[sample]
+        polygons = [v.get_vessel_footprint(buffer=loa_buffer / 2) for v in sub.get_vessel_generator()]
+        dynamic_footprint = m.mask_of_polygons(polygons)
 
-        filled_depth = f(position)
-    else:
-        filled_depth = np.tile(np.nan, depth.shape)
+        draft_value = np.nanmax(track.draft)
+        if not draft_value:
+            draft_value = 1
 
-    return filled_depth
+        dynamic_drafts.insert_mask(i, dynamic_footprint, draft_value)
 
+        bp = BerthProbability(track, terminal)
+        sub = track[bp.is_points_berthed()]
+        if len(sub)>0:
+            polygons = [v.get_vessel_footprint(buffer=loa_buffer / 2) for v in sub.get_vessel_generator()]
+            # v = sub.get_aggregated_vessel()  # vessel with median properties  # TODO: why does it make middle quay in Genoa disappear in depth map.
+            # v = sub.get_vessel_at_index(0)
+            # polygons = [v.get_vessel_footprint(buffer=loa_buffer / 2)]
+            static_footprint = m.mask_of_polygons(polygons)
 
-def convert_curve_to_sections(x, y, threshold=0.1):
-    section_start, section_value = [], []
-    for i, (xi, yi) in enumerate(zip(x, y)):
-        if i == 0:
-            section_start.append(xi)
-            section_value.append(yi)
-        else:
-            if abs(yi - section_value[-1]) > threshold:
-                section_start.append(xi)
-                section_value.append(yi)
+            static_drafts.insert_mask(i, static_footprint, draft_value)
 
-    section_start = np.array(section_start)
-    section_value = np.array(section_value)
-    section_length = np.diff(np.hstack([section_start, x[-1]]))
-
-    return section_start, section_value, section_length
+    return static_drafts, dynamic_drafts

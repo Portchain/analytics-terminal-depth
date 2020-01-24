@@ -1,8 +1,9 @@
 import argparse
+import os, sys
 from portcall.data import TerminalTable
-from utils import create_draft_histogram_map, calculate_quay_aligned_map, clean_depth_profile, calculate_depth_profile
-from utils import import_ais_data
-from utils import convert_curve_to_sections
+from port_mapper.depth_map import calculate_quay_aligned_map, create_draft_histogram_map
+from port_mapper.depth_profile import calculate_depth_profile, clean_depth_profile, convert_curve_to_sections
+from port_mapper.utils import import_ais_data
 import logging
 import matplotlib.pyplot as plt
 import numpy as np
@@ -16,6 +17,7 @@ logging.basicConfig(level=logging.INFO,
 logger = logging.getLogger(__name__)
 
 if __name__ == "__main__":
+
     logger.info('Starting script')
 
     parser = argparse.ArgumentParser(description='Determine port calls and save to database')
@@ -28,6 +30,10 @@ if __name__ == "__main__":
     parser.add_argument("-t", "--terminal", dest='terminal',
                         default='DEHAM-BUR', type=str,
                         help="Code of terminal to map quay depth")
+    parser.add_argument("-o", "--outdir", dest='output_dir',
+                        default='outputs', type=str,
+                        help="Output directory")
+
     parser.add_argument("-v", "--verbose", dest='verbose', action='store_true', help="Enable verbosity")
     parser.set_defaults(verbose=False)
 
@@ -35,7 +41,9 @@ if __name__ == "__main__":
     ais_start_time = args.start_time
     ais_end_time = args.end_time
     terminal = args.terminal
+    output_dir = args.output_dir
     verbose = args.verbose
+
     map_buffer = 0  # [m]
     resolution = 5  # [m]
 
@@ -113,12 +121,14 @@ if __name__ == "__main__":
 
     save_data = True
     if save_data:
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
         filename = '{terminal}_quay_depth.png'.format(terminal=terminal.code)
-        fig1.savefig(filename, dpi=200)
+        fig1.savefig(os.path.join(output_dir, filename), dpi=200)
         filename = '{terminal}_map.png'.format(terminal=terminal.code)
-        fig2.savefig(filename, dpi=200)
+        fig2.savefig(os.path.join(output_dir, filename), dpi=200)
         filename = '{terminal}_depth.csv'.format(terminal=terminal.code)
-        df_profiles.to_csv(filename, index=False)
+        df_profiles.to_csv(os.path.join(output_dir, filename), index=False)
 
     plt.show()
 
