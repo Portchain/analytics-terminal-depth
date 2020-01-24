@@ -1,18 +1,20 @@
-import numpy as np
 from portcall.data import AISTable
 from portcall.portcall import BerthProbability
 from portcall.terminal import Terminal, Quay
-from skimage.draw import polygon2mask
-from scipy import interpolate
+from portcall.vessel import VesselTrack
+from portcall.utils import spherical_distance_exact, geodetic_to_enu, enu_to_geodetic
+
 from tqdm import tqdm as tqdm
 import logging
+from typing import List
+
+import numpy as np
+from skimage.draw import polygon2mask
+from scipy import interpolate
 import matplotlib.pyplot as plt
 
 logger = logging.getLogger(__name__)
-from portcall.utils import spherical_distance_exact
 
-from typing import List
-from portcall.vessel import VesselTrack
 
 class MapGrid:
     def __init__(self, first_axis, second_axis, data: (dict, None) = None):
@@ -110,6 +112,7 @@ class MapGrid:
             fig = ax.get_figure()
             fig.colorbar(im, orientation=colorbar)
 
+
 def rotate_vector(v, angle):
     angle = np.deg2rad(angle)
     rot_mat = np.array([[np.cos(angle), -np.sin(angle)],
@@ -188,9 +191,12 @@ class DraftContainer:
         return map_
 
 
-def create_draft_histogram_map(tracks:List[VesselTrack], terminal: Terminal, loa_buffer=30) -> (DraftContainer, DraftContainer):
-
-    m = create_map_grid_of_terminal(terminal)
+def create_draft_histogram_map(tracks: List[VesselTrack],
+                               terminal: Terminal,
+                               loa_buffer=30,
+                               terminal_buffer=100,
+                               resolution=10) -> (DraftContainer, DraftContainer):
+    m = create_map_grid_of_terminal(terminal, buffer=terminal_buffer,resolution=resolution)
 
     # Extract historic drafts
     logger.info('Collect draft information in terminal')
@@ -198,42 +204,57 @@ def create_draft_histogram_map(tracks:List[VesselTrack], terminal: Terminal, loa
     static_drafts = DraftContainer(m, len(tracks))
 
     for i, track in tqdm(enumerate(tracks), total=len(tracks)):
-        polygons = [v.get_vessel_footprint(buffer=loa_buffer / 2) for v in track.get_vessel_generator()]
+        # polygons = [v.get_vessel_footprint(buffer=loa_buffer / 2) for v in track.get_vessel_generator()]
+        sample = (track.speed > 5) | np.random.binomial(1, 0.5, (len(track))).astype(bool)
+        sub = track[sample]
+        polygons = [v.get_vessel_footprint(buffer=loa_buffer / 2) for v in sub.get_vessel_generator()]
         dynamic_footprint = m.mask_of_polygons(polygons)
 
         draft_value = np.nanmax(track.draft)
         if not draft_value:
             draft_value = 1
 
-        bp = BerthProbability(track, terminal)
-        sub = track[bp.is_points_berthed() > 0.9]
-        polygons = [v.get_vessel_footprint(buffer=loa_buffer / 2) for v in sub.get_vessel_generator()]
-        static_footprint = m.mask_of_polygons(polygons)
-
         dynamic_drafts.insert_mask(i, dynamic_footprint, draft_value)
-        static_drafts.insert_mask(i, static_footprint, draft_value)
+
+        bp = BerthProbability(track, terminal)
+        sub = track[bp.is_points_berthed()]
+        if len(sub)>0:
+            polygons = [v.get_vessel_footprint(buffer=loa_buffer / 2) for v in sub.get_vessel_generator()]
+            # v = sub.get_aggregated_vessel()  # vessel with median properties  # TODO: why does it make middle quay in Genoa disappear in depth map.
+            # v = sub.get_vessel_at_index(0)
+            # polygons = [v.get_vessel_footprint(buffer=loa_buffer / 2)]
+            static_footprint = m.mask_of_polygons(polygons)
+
+            static_drafts.insert_mask(i, static_footprint, draft_value)
 
     return static_drafts, dynamic_drafts
 
 
 def import_ais_data(terminal, start_time, end_time):
     # Create a grid for the map
-    logger.info('Initialize map grid')
-    m = create_map_grid_of_terminal(terminal)
+    lon1, lat1 = np.min(terminal.outline, axis=0)
+    lon2, lat2 = np.max(terminal.outline, axis=0)
     logger.info('Load AIS data')
     with AISTable() as adb:
-        tracks = adb.fetch_tracks(lat_lim=m.second_lim,
-                                  lon_lim=m.first_lim,
+        tracks = adb.fetch_tracks(lat_lim=(lat1, lat2),
+                                  lon_lim=(lon1, lon2),
                                   start_time=start_time,
                                   end_time=end_time)
         tracks = list(tracks)
     return tracks
 
 
-def create_map_grid_of_terminal(terminal: Terminal):
+def create_map_grid_of_terminal(terminal: Terminal, buffer=50, resolution=10):
     lon1, lat1 = terminal.outline.min(axis=0)
     lon2, lat2 = terminal.outline.max(axis=0)
-    resolution = 10  # [m]
+    logger.debug("(%s,%s) and (%s,%s) spans the terminal" % (lon1, lat1, lon2, lat2))
+    x1, y1 = geodetic_to_enu(lon1, lat1, lon_ref=lon1, lat_ref=lat1)
+    lon1, lat1 = enu_to_geodetic(x1 - buffer, y1 - buffer, lon_ref=lon1, lat_ref=lat1)
+
+    x2, y2 = geodetic_to_enu(lon2, lat2, lon_ref=lon1, lat_ref=lat1)
+    lon2, lat2 = enu_to_geodetic(x2 + buffer, y2 + buffer, lon_ref=lon1, lat_ref=lat1)
+    logger.debug("Defining grid betweeen (%s,%s) and (%s,%s)" % (lon1, lat1, lon2, lat2))
+
     map_width = spherical_distance_exact(np.array([lon1, lat1]), np.array([lon2, lat1]))
     map_height = spherical_distance_exact(np.array([lon1, lat1]), np.array([lon1, lat2]))
     n_lon = np.floor(map_width / resolution)
@@ -245,7 +266,7 @@ def create_map_grid_of_terminal(terminal: Terminal):
     return m
 
 
-def calculate_quay_aligned_map(quay: Quay, static_map: MapGrid): #TODO: change name to calculate_quay_aligned_map
+def calculate_quay_aligned_map(quay: Quay, static_map: MapGrid):  # TODO: change name to calculate_quay_aligned_map
     width = 100  # [m]
     resolution_parallel = 10  # [m]
     resolution_normal = 10  # [m]
@@ -287,14 +308,14 @@ def calculate_quay_aligned_map(quay: Quay, static_map: MapGrid): #TODO: change n
 def calculate_depth_profile(m: MapGrid):
     # extract 1D information
     depth_2d = m.get_data()
-    depth_1d = np.nanquantile(depth_2d, 0.70, axis=0)
+    depth_1d = np.nanquantile(depth_2d, 0.95, axis=0)
     axis_parallel = m.get_first_axis()
     return axis_parallel, depth_1d
 
 
-def clean_depth_profile(position: np.ndarray, depth: np.ndarray):
+def clean_depth_profile(position: np.ndarray, depth: np.ndarray, depth_unit=1):
     # discretize the depth
-    depth = np.round(depth)
+    depth = np.round(depth / depth_unit) * depth_unit
 
     # find plateaus
     select = find_plateaus(depth)
@@ -314,3 +335,21 @@ def clean_depth_profile(position: np.ndarray, depth: np.ndarray):
         filled_depth = np.tile(np.nan, depth.shape)
 
     return filled_depth
+
+
+def convert_curve_to_sections(x, y, threshold=0.1):
+    section_start, section_value = [], []
+    for i, (xi, yi) in enumerate(zip(x, y)):
+        if i == 0:
+            section_start.append(xi)
+            section_value.append(yi)
+        else:
+            if abs(yi - section_value[-1]) > threshold:
+                section_start.append(xi)
+                section_value.append(yi)
+
+    section_start = np.array(section_start)
+    section_value = np.array(section_value)
+    section_length = np.diff(np.hstack([section_start, x[-1]]))
+
+    return section_start, section_value, section_length

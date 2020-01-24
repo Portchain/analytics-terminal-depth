@@ -1,11 +1,13 @@
 import argparse
-
 from portcall.data import TerminalTable
 from utils import create_draft_histogram_map, calculate_quay_aligned_map, clean_depth_profile, calculate_depth_profile
 from utils import import_ais_data
+from utils import convert_curve_to_sections
 import logging
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
+
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
                     datefmt='%Y-%m-%d %H:%M:%S',
@@ -34,35 +36,47 @@ if __name__ == "__main__":
     ais_end_time = args.end_time
     terminal = args.terminal
     verbose = args.verbose
+    map_buffer = 0  # [m]
+    resolution = 5  # [m]
 
     # Load terminal information
     logger.info('Load terminal information for %s' % terminal)
     with TerminalTable() as tdb:
         terminals = tdb.fetch_terminals(code=terminal)
         terminal = terminals[0]
+    logger.info('Loaded terminal: %s' % str(terminal))
 
     tracks = import_ais_data(terminal, ais_start_time, ais_end_time)
-    static_drafts, dynamic_drafts = create_draft_histogram_map(tracks, terminal)
+    logger.info('Loaded AIS tracks of %d vessels' % len(tracks))
+    static_drafts, dynamic_drafts = create_draft_histogram_map(tracks,
+                                                               terminal,
+                                                               resolution=resolution,
+                                                               terminal_buffer=map_buffer)
 
-    agg = lambda x : np.nanquantile(x,0.95,axis=0)
+    agg = lambda x: np.nanquantile(x, 0.95, axis=0)
     static_depth_map = static_drafts.create_depth_map(agg=agg)
     dynamic_depth_map = dynamic_drafts.create_depth_map(agg=agg)
     static_count_map = static_drafts.create_count_map()
     dynamic_count_map = dynamic_drafts.create_count_map()
 
     # Project depth info onto quay
-    fig1, axs = plt.subplots(1, len(terminal.quays),figsize=(30, 10))
-    if len(terminal.quays)==1:
+    fig1, axs = plt.subplots(1, len(terminal.quays), figsize=(30, 10))
+    if len(terminal.quays) == 1:
         axs = [axs]
     else:
         axs = axs.flatten()
+
+    depth_profiles = {}
     for i, quay in enumerate(terminal.quays):
         logger.info('Calculating depth for quay %s' % quay.code)
         quay_depth_map = calculate_quay_aligned_map(quay, static_depth_map)
         quay_position, quay_depth = calculate_depth_profile(quay_depth_map)
-        quay_depth_cleaned = clean_depth_profile(quay_position, quay_depth)
-        axs[i].plot(quay_position, quay_depth_cleaned)
-        axs[i].plot(quay_position, quay_depth, ':k')
+        quay_depth_cleaned = clean_depth_profile(quay_position, quay_depth, depth_unit=1)
+
+        depth_profiles[quay.code] = convert_curve_to_sections(quay_position, quay_depth_cleaned, threshold=0.1)
+
+        axs[i].plot(quay_position, quay_depth_cleaned, label='raw')
+        axs[i].plot(quay_position, quay_depth, ':k', label='clean')
 
         axs[i].set_title('Quay: %s' % quay.code)
         axs[i].set_xlabel('Quay position [m]')
@@ -86,22 +100,32 @@ if __name__ == "__main__":
     ax12.set_title('Depth', fontsize=18)
     ax11.set_ylabel('Dynamic', fontsize=18)
     ax21.set_ylabel('Static', fontsize=18)
-    # mplleaflet.display()
 
-    save_fig = True
-    if save_fig:
+    # collect all depth profiles in single dataframe
+    temp = []
+    for quay_id, data in depth_profiles.items():
+        temp.append(pd.DataFrame({'terminal': terminal.code,
+                                  'quay': quay_id,
+                                  'start_position': data[0],
+                                  'depth': data[1],
+                                  'length': data[2]}))
+    df_profiles = pd.concat(temp, axis=0)
+
+    save_data = True
+    if save_data:
         filename = '{terminal}_quay_depth.png'.format(terminal=terminal.code)
         fig1.savefig(filename, dpi=200)
         filename = '{terminal}_map.png'.format(terminal=terminal.code)
         fig2.savefig(filename, dpi=200)
+        filename = '{terminal}_depth.csv'.format(terminal=terminal.code)
+        df_profiles.to_csv(filename, index=False)
+
     plt.show()
 
-    #TODO: create table summary of quay depths
-    #TODO: show quay depth on map
-    #TODO: Indicate which end of quay we are counting from
-    #TODO: add colorbar to plots
-    #TODO: Validate that length of vessel-footprint is correct seems a bit short
-    #TODO: better aggregation function for drafts. max observed more than n times
-    #TODO: I a track has multiple portcalls we are using the same draft for all of them. And that vessel is undercounted
+    # TODO: show quay depth on map
+    # TODO: Indicate which end of quay we are counting from
+    # TODO: add colorbar to plots
+    # TODO: better aggregation function for drafts. max observed more than n times
+    # TODO: I a track has multiple portcalls we are using the same draft for all of them. And that vessel is undercounted
 
     logger.info('Done!')
