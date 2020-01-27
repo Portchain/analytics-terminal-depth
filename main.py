@@ -44,6 +44,8 @@ if __name__ == "__main__":
     output_dir = args.output_dir
     verbose = args.verbose
 
+    map_type = 'static'
+
     map_buffer = 0  # [m]
     resolution = 5  # [m]
 
@@ -56,16 +58,15 @@ if __name__ == "__main__":
 
     tracks = import_ais_data(terminal, ais_start_time, ais_end_time)
     logger.info('Loaded AIS tracks of %d vessels' % len(tracks))
-    static_drafts, dynamic_drafts = create_draft_histogram_map(tracks,
-                                                               terminal,
-                                                               resolution=resolution,
-                                                               terminal_buffer=map_buffer)
+    drafts = create_draft_histogram_map(tracks,
+                                        terminal,
+                                        resolution=resolution,
+                                        terminal_buffer=map_buffer,
+                                        type=map_type)
 
     agg = lambda x: np.nanquantile(x, 0.95, axis=0)
-    static_depth_map = static_drafts.create_depth_map(agg=agg)
-    dynamic_depth_map = dynamic_drafts.create_depth_map(agg=agg)
-    static_count_map = static_drafts.create_count_map()
-    dynamic_count_map = dynamic_drafts.create_count_map()
+    depth_map = drafts.create_depth_map(agg=agg)
+    count_map = drafts.create_count_map()
 
     # Project depth info onto quay
     fig1, axs = plt.subplots(1, len(terminal.quays), figsize=(30, 10))
@@ -77,7 +78,7 @@ if __name__ == "__main__":
     depth_profiles = {}
     for i, quay in enumerate(terminal.quays):
         logger.info('Calculating depth for quay %s' % quay.code)
-        quay_depth_map = calculate_quay_aligned_map(quay, static_depth_map)
+        quay_depth_map = calculate_quay_aligned_map(quay, depth_map)
         quay_position, quay_depth = calculate_depth_profile(quay_depth_map)
         quay_depth_cleaned = clean_depth_profile(quay_position, quay_depth, depth_unit=1)
 
@@ -91,23 +92,16 @@ if __name__ == "__main__":
         axs[i].set_ylim(6, 20)
         axs[i].legend()
 
-    fig2, axs = plt.subplots(2, 2, figsize=(30, 20))
+    fig2, axs = plt.subplots(1, 2, figsize=(30, 13))
+    ax1, ax2 = axs
+    terminal.plot(ax=ax1)
+    count_map.contour(ax=ax1, fill=True)
 
-    (ax11, ax12), (ax21, ax22) = axs
-    terminal.plot(ax=ax22)
-    static_depth_map.contour(ax=ax22, fill=True)
-    terminal.plot(ax=ax12)
-    dynamic_depth_map.contour(ax=ax12, fill=True)
+    terminal.plot(ax=ax2)
+    depth_map.contour(ax=ax2, fill=True)
 
-    terminal.plot(ax=ax21)
-    static_count_map.contour(ax=ax21, fill=True)
-    terminal.plot(ax=ax11)
-    dynamic_count_map.contour(ax=ax11, fill=True)
-
-    ax11.set_title('Count', fontsize=18)
-    ax12.set_title('Depth', fontsize=18)
-    ax11.set_ylabel('Dynamic', fontsize=18)
-    ax21.set_ylabel('Static', fontsize=18)
+    ax1.set_title('Count', fontsize=18)
+    ax2.set_title('Depth', fontsize=18)
 
     # collect all depth profiles in single dataframe
     temp = []

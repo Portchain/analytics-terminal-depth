@@ -219,36 +219,39 @@ def create_draft_histogram_map(tracks: List[VesselTrack],
                                terminal: Terminal,
                                loa_buffer=30,
                                terminal_buffer=100,
-                               resolution=10) -> (DraftContainer, DraftContainer):
+                               resolution=10,
+                               type='static') -> (DraftContainer, DraftContainer):
     m = create_map_grid_of_terminal(terminal, buffer=terminal_buffer, resolution=resolution)
 
     # Extract historic drafts
     logger.info('Collect draft information in terminal')
-    dynamic_drafts = DraftContainer(m, len(tracks))
-    static_drafts = DraftContainer(m, len(tracks))
+    drafts = DraftContainer(m, len(tracks))
 
     for i, track in tqdm(enumerate(tracks), total=len(tracks)):
-        # polygons = [v.get_vessel_footprint(buffer=loa_buffer / 2) for v in track.get_vessel_generator()]
-        sample = (track.speed > 5) | np.random.binomial(1, 0.5, (len(track))).astype(bool)
-        sub = track[sample]
-        polygons = [v.get_vessel_footprint(buffer=loa_buffer / 2) for v in sub.get_vessel_generator()]
-        dynamic_footprint = m.mask_of_polygons(polygons)
 
         draft_value = np.nanmax(track.draft)
         if not draft_value:
             draft_value = 1
 
-        dynamic_drafts.insert_mask(i, dynamic_footprint, draft_value)
-
-        bp = BerthProbability(track, terminal)
-        sub = track[bp.is_points_berthed()]
-        if len(sub)>0:
+        if type == 'dynamic':
+            # polygons = [v.get_vessel_footprint(buffer=loa_buffer / 2) for v in track.get_vessel_generator()]
+            sample = (track.speed > 5) | np.random.binomial(1, 0.5, (len(track))).astype(bool)
+            sub = track[sample]
             polygons = [v.get_vessel_footprint(buffer=loa_buffer / 2) for v in sub.get_vessel_generator()]
-            # v = sub.get_aggregated_vessel()  # vessel with median properties  # TODO: why does it make middle quay in Genoa disappear in depth map.
-            # v = sub.get_vessel_at_index(0)
-            # polygons = [v.get_vessel_footprint(buffer=loa_buffer / 2)]
-            static_footprint = m.mask_of_polygons(polygons)
+            dynamic_footprint = m.mask_of_polygons(polygons)
 
-            static_drafts.insert_mask(i, static_footprint, draft_value)
+            drafts.insert_mask(i, dynamic_footprint, draft_value)
+        else:
 
-    return static_drafts, dynamic_drafts
+            bp = BerthProbability(track, terminal)
+            sub = track[bp.is_points_berthed()]
+            if len(sub) > 0:
+                polygons = [v.get_vessel_footprint(buffer=loa_buffer / 2) for v in sub.get_vessel_generator()]
+                # v = sub.get_aggregated_vessel()  # vessel with median properties  # TODO: why does it make middle quay in Genoa disappear in depth map.
+                # v = sub.get_vessel_at_index(0)
+                # polygons = [v.get_vessel_footprint(buffer=loa_buffer / 2)]
+                static_footprint = m.mask_of_polygons(polygons)
+
+                drafts.insert_mask(i, static_footprint, draft_value)
+
+    return drafts
