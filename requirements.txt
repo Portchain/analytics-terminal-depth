@@ -1,3 +1,5 @@
+streamlit
+plotly
 PyQt5
 matplotlib
 scipy

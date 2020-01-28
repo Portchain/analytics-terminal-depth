@@ -15,13 +15,12 @@ def calculate_depth_profile(m: MapGrid):
     return axis_parallel, depth_1d
 
 
-def clean_depth_profile(position: np.ndarray, depth: np.ndarray, depth_unit=1):
+def clean_depth_profile(position: np.ndarray, depth: np.ndarray, depth_unit=1,smooth_width=3,merge_width=1,plateau_width=1):
     # discretize the depth
+    depth = smooth_curve(depth, width=smooth_width)
     depth = np.round(depth / depth_unit) * depth_unit
-
-    depth = smooth_curve(depth, width=3)
-    select = find_plateaus(depth)
-    clean_select = clean_bool_sequence(select, n=1)
+    select = find_plateaus(depth,half_width=plateau_width)
+    clean_select = clean_bool_sequence(select, n=merge_width)
     clean_depth = depth[clean_select]
     clean_position = position[clean_select]
 
@@ -40,24 +39,27 @@ def clean_depth_profile(position: np.ndarray, depth: np.ndarray, depth_unit=1):
 
 
 def smooth_curve(y, width=3):
-    kernel = np.ones(width)
+    kernel = np.ones(width)/width
     return np.convolve(y, kernel, mode='same')
 
 
 def find_plateaus(y, min_value=5, half_width=1):
-    step = np.hstack((np.ones(half_width), -1 * np.ones(half_width)))
-    peak = np.array([-0.5, 1, -0.5])
-    d_step = np.convolve(y, step, mode='same')
-    d_peak = np.convolve(y, peak, mode='same')
+    if half_width == 0:
+        return (y > min_value)
+    else:
+        step = np.hstack((np.ones(half_width), -1 * np.ones(half_width)))
+        peak = np.array([-0.5, 1, -0.5])
+        d_step = np.convolve(y, step, mode='same')
+        d_peak = np.convolve(y, peak, mode='same')
 
-    upper_lim = 0.5
-    lower_lim = -0.5
+        upper_lim = 0.5
+        lower_lim = -0.5
 
-    select = (lower_lim <= d_step) & (d_step <= upper_lim) \
-             & (lower_lim <= d_peak) & (d_peak <= upper_lim) \
-             & (y > min_value)
+        select = (lower_lim <= d_step) & (d_step <= upper_lim) \
+                 & (lower_lim <= d_peak) & (d_peak <= upper_lim) \
+                 & (y > min_value)
 
-    return select
+        return select
 
 
 def shrink_bool_sequence(seq, n=1):
