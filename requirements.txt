@@ -1,15 +1,6 @@
 streamlit
 plotly
-PyQt5
 matplotlib
-scipy
-tqdm
-scikit-image
 numpy
 pandas
-psycopg2
-pytz
-pyproj
-geopy
-
-pyqt
+-e ../PortCallDetection/
