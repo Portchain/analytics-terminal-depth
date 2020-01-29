@@ -3,4 +3,4 @@ plotly
 matplotlib
 numpy
 pandas
--e C:\Users\sebastian\PycharmProjects\PortCallDetection
+-e ./PortCallDetection
