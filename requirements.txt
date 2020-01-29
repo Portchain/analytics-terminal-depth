@@ -3,4 +3,4 @@ plotly
 matplotlib
 numpy
 pandas
--e git+https://github.com/Portchain/soe-portcall-detection.git#egg=portcall
+-e git+https://f8a027147781d2012c5b96882099da5d2f66586b@github.com/Portchain/soe-portcall-detection.git#egg=portcall
