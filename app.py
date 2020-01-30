@@ -24,7 +24,7 @@ def load_terminal(terminal: str):
 
 
 @st.cache
-def load_tracks(terminal: str, ais_start_time: datetime, ais_end_time: datetime):
+def load_ais_data(terminal: str, ais_start_time: datetime, ais_end_time: datetime):
     tracks = import_ais_data(terminal, ais_start_time, ais_end_time)
     return tracks
 
@@ -66,7 +66,7 @@ if __name__ == "__main__":
 
         terminal = load_terminal(terminal_name)
         st.title('Depth analysis of  %s' % terminal_name)
-        tracks = load_tracks(terminal, ais_start_time, ais_end_time)
+        tracks = load_ais_data(terminal, ais_start_time, ais_end_time)
 
         # --------- Calculate the map ---------------------------------------------------------------------------------
         st.sidebar.header('Map')
@@ -100,11 +100,13 @@ if __name__ == "__main__":
             value_str = 'Depth [m]'
             agg_map = drafts.create_depth_map(agg=agg)
             zmin = 5
-            zmax = 20
+            zmax = 24
+            yrange = [zmax, zmin]
         elif map_type == 'count':
             agg_map = drafts.create_count_map()
             value_str = 'Vessel Count [#]'
             zmin, zmax = None, None
+            yrange = None
         else:
             raise ValueError('Unknown map type requested: %s' % map_type)
 
@@ -209,6 +211,7 @@ if __name__ == "__main__":
         fig2.update_yaxes(title=value_str)
         fig2.update_xaxes(title='Quay Position [m]')
         fig2.update_layout(width=FIGURE_WIDTH, height=FIGURE_WIDTH / 2)
+        fig2.update_yaxes(autorange='reversed')
         st.write(fig2)
 
         st.header('Quay profile')
