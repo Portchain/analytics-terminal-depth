@@ -220,7 +220,7 @@ def create_draft_histogram_map(tracks: List[VesselTrack],
                                loa_buffer=30,
                                terminal_buffer=100,
                                resolution=10,
-                               type='static') -> (DraftContainer, DraftContainer):
+                               type='static') -> DraftContainer:
     m = create_map_grid_of_terminal(terminal, buffer=terminal_buffer, resolution=resolution)
 
     # Extract historic drafts

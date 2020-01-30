@@ -6,7 +6,7 @@ import numpy as np
 from portcall.data import TerminalTable
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from port_mapper.depth_map import create_draft_histogram_map, calculate_quay_aligned_map
+from port_mapper.depth_map import create_draft_histogram_map, calculate_quay_aligned_map, DraftContainer
 from port_mapper.depth_profile import convert_curve_to_sections, clean_depth_profile, calculate_depth_profile
 from port_mapper.utils import import_ais_data
 from portcall.terminal import Terminal
@@ -29,7 +29,7 @@ def load_tracks(terminal: str, ais_start_time: datetime, ais_end_time: datetime)
     return tracks
 
 
-@st.cache(allow_output_mutation=True, hash_funcs={Terminal: id, VesselTrack: id})
+@st.cache(hash_funcs={np.ufunc:str})
 def calculate_drafts(tracks, terminal, resolution, map_buffer, map_type):
     return create_draft_histogram_map(tracks,
                                       terminal,
@@ -47,12 +47,13 @@ def load_all_terminal_names():
 
 
 if __name__ == "__main__":
-    password_str = st.sidebar.text_input('App Password')
-    if password_str == os.environ['APP_PASSWORD']:
-        st.sidebar.text('App unlocked!')
-    else:
-        st.sidebar.text('App locked.')
-        sys.exit()
+
+    # password_str = st.sidebar.text_input('App Password')
+    # if password_str == os.environ['APP_PASSWORD']:
+    #     st.sidebar.text('App unlocked!')
+    # else:
+    #     st.sidebar.text('App locked.')
+    #     sys.exit()
 
     # ---------- Collect histogram of drafts ---------------------------------------------------------------------------
     st.sidebar.header('Data')
