@@ -1,5 +1,4 @@
 mkdir -p ~/.streamlit/
-pip install --upgrade pip --force-reinstall -r requirements.txt
 echo "\
 [general]\n\
 email = \"sebastian@portchain.com\"\n\

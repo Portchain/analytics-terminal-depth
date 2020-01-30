@@ -47,10 +47,6 @@ def load_all_terminal_names():
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.DEBUG,
-                        format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
-                        datefmt='%Y-%m-%d %H:%M:%S',
-                        filename=None)
     password_str = st.sidebar.text_input('App Password')
     if password_str == os.environ['APP_PASSWORD']:
         st.sidebar.text('App unlocked!')
@@ -78,7 +74,7 @@ if __name__ == "__main__":
             ['static', 'dynamic'])
 
         resolution = st.sidebar.number_input('Map resolution [m]', min_value=2, max_value=50, value=10)
-        st.write((type(tracks), type(terminal), type(resolution), type(draft_type)))
+
         drafts = calculate_drafts(tracks,
                                   terminal,
                                   resolution, 100, draft_type)
