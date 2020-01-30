@@ -1,5 +1,5 @@
 mkdir -p ~/.streamlit/
-
+pip install --upgrade pip
 echo "\
 [general]\n\
 email = \"sebastian@portchain.com\"\n\
