@@ -27,7 +27,7 @@ def load_ais_data(terminal: str, ais_start_time: datetime, ais_end_time: datetim
     return tracks
 
 
-@st.cache(hash_funcs={np.ufunc:str})
+@st.cache(hash_funcs={np.ufunc: str})
 def calculate_drafts(tracks, terminal, resolution, map_buffer, map_type):
     return create_draft_histogram_map(tracks,
                                       terminal,
@@ -51,35 +51,35 @@ if __name__ == "__main__":
         # ---------- Collect histogram of drafts -----------------------------------------------------------------------
         st.sidebar.header('Data')
         all_terminal_names = load_all_terminal_names()
-        terminal_name = st.sidebar.selectbox('Select a terminal', [''] + all_terminal_names, index=0)
+        terminal_name = st.sidebar.selectbox('Select a terminal:  (slow)', [''] + all_terminal_names, index=0)
 
         if not terminal_name == '':
-            ais_start_time = st.sidebar.date_input('Start data', datetime.date(2019, 11, 1))
-            ais_end_time = st.sidebar.date_input('Start data', datetime.date(2019, 12, 1))
+            ais_start_time = st.sidebar.date_input('Start date for AIS data: (slow)', datetime.date(2019, 11, 1))
+            ais_end_time = st.sidebar.date_input('End date for AIS data: (slow)', datetime.date(2019, 12, 1))
 
             terminal = load_terminal(terminal_name)
             st.title('Depth analysis of  %s' % terminal_name)
             tracks = load_ais_data(terminal, ais_start_time, ais_end_time)
 
-            # --------- Calculate the map ------------------------------------------------------------------------------
+            # --------- Record observed drafts -----------------------------------------------------------------------
             st.sidebar.header('Map')
             draft_type = st.sidebar.selectbox(
-                'Select a map type',
+                'Select draft type: (slow)',
                 ['static', 'dynamic'])
-
             resolution = st.sidebar.number_input('Map resolution [m]', min_value=2, max_value=50, value=10)
 
             drafts = calculate_drafts(tracks,
                                       terminal,
                                       resolution, 100, draft_type)
 
-            map_type = st.sidebar.selectbox('Select a map type',
+            # --------- Calculate the map ------------------------------------------------------------------------------
+            map_type = st.sidebar.selectbox('Select property to map:',
                                             ['depth', 'count'])
-            draft_agg = st.sidebar.selectbox('Select a map type',
-                                             ['max', '95%', '90%', '75%'],
-                                             index=1)
 
             if map_type == 'depth':
+                draft_agg = st.sidebar.selectbox('Select a map type',
+                                                 ['max', '95%', '90%', '75%'],
+                                                 index=1)
                 if draft_agg == 'max':
                     agg = lambda x: np.nanmax(x, axis=0)
                 elif draft_agg == '95%':
@@ -108,22 +108,26 @@ if __name__ == "__main__":
             quay_codes = [quay.code for quay in terminal.quays]
             quay_code = st.sidebar.selectbox('Select a quay to analyse', quay_codes)
             quay_idx = quay_codes.index(quay_code)
-            depth_unit = st.sidebar.number_input('Unit', min_value=0.2, max_value=2., value=1., step=0.2)
-            smooth_width = st.sidebar.number_input('Smoothing', min_value=1, max_value=10, value=3, step=1)
-            merge_width = st.sidebar.number_input('Merging', min_value=0, max_value=10, value=2, step=1)
-            plateau_width = st.sidebar.number_input('Plateau', min_value=0, max_value=10, value=2, step=1)
+
+            if map_type=='depth':
+                depth_unit = st.sidebar.number_input('Unit', min_value=0.2, max_value=2., value=1., step=0.2)
+                smooth_width = st.sidebar.number_input('Smoothing', min_value=1, max_value=10, value=3, step=1)
+                merge_width = st.sidebar.number_input('Merging', min_value=0, max_value=10, value=2, step=1)
+                plateau_width = st.sidebar.number_input('Plateau', min_value=0, max_value=10, value=2, step=1)
 
             quay = terminal.quays[quay_idx]
 
             quay_map = calculate_quay_aligned_map(quay, agg_map)
             quay_position, quay_depth = calculate_depth_profile(quay_map)
-            quay_depth_cleaned = clean_depth_profile(quay_position, quay_depth,
-                                                     depth_unit=depth_unit,
-                                                     smooth_width=smooth_width,
-                                                     merge_width=merge_width,
-                                                     plateau_width=plateau_width
-                                                     )
-            depth_profile = convert_curve_to_sections(quay_position, quay_depth_cleaned, threshold=0.1)
+
+            if map_type == 'depth':
+                quay_depth_cleaned = clean_depth_profile(quay_position, quay_depth,
+                                                         depth_unit=depth_unit,
+                                                         smooth_width=smooth_width,
+                                                         merge_width=merge_width,
+                                                         plateau_width=plateau_width
+                                                         )
+                depth_profile = convert_curve_to_sections(quay_position, quay_depth_cleaned, threshold=0.1)
 
             # --------------- Present results in figures ---------------------------------------------------------------
             fig1 = make_subplots(rows=1,
@@ -154,11 +158,10 @@ if __name__ == "__main__":
                                row=1, col=1)
             fig1.update_traces(textposition='top center')
             center = terminal.terminal_center
-            fig1.update_layout(
-                mapbox=dict(center=dict(lon=center[0], lat=center[1]),
-                            style="open-street-map",
-                            zoom=12),
-                margin={'l': 0, 'r': 0, 'b': 0, 't': 0})
+            fig1.update_layout(mapbox=dict(center=dict(lon=center[0], lat=center[1]),
+                                           style="open-street-map",
+                                           zoom=12),
+                               margin={'l': 0, 'r': 0, 'b': 0, 't': 0})
 
             fig1.add_trace(go.Scatter(x=terminal.outline[:, 0],
                                       y=terminal.outline[:, 1],
@@ -166,7 +169,8 @@ if __name__ == "__main__":
                                       line=dict(color='black'),
                                       hoveron='fills',
                                       name=terminal_name,
-                                      hoverinfo='name'))
+                                      hoverinfo='name'),
+                           row=1, col=2)
 
             fig1.add_trace(go.Contour(z=agg_map.get_data(),
                                       x=agg_map.get_first_axis(),  # horizontal axis
@@ -198,20 +202,23 @@ if __name__ == "__main__":
             fig2.add_trace(go.Scatter(x=quay_position, y=quay_depth,
                                       mode='lines',
                                       name='raw'))
-            fig2.add_trace(go.Scatter(x=quay_position, y=quay_depth_cleaned,
-                                      mode='lines+markers',
-                                      name='clean'))
+            if map_type == 'depth':
+                fig2.add_trace(go.Scatter(x=quay_position, y=quay_depth_cleaned,
+                                          mode='lines+markers',
+                                          name='clean'))
             fig2.update_yaxes(title=value_str)
             fig2.update_xaxes(title='Quay Position [m]')
             fig2.update_layout(width=FIGURE_WIDTH, height=FIGURE_WIDTH / 2)
-            fig2.update_yaxes(autorange='reversed')
+            if map_type == 'depth':
+                fig2.update_yaxes(autorange='reversed')
             st.write(fig2)
 
-            st.header('Quay profile')
-            df = {'start_position': depth_profile[0],
-                  'depth': depth_profile[1],
-                  'length': depth_profile[2]}
-            st.dataframe(df)
+            if map_type == 'depth':
+                st.header('Quay profile')
+                df = {'start_position': depth_profile[0],
+                      'depth': depth_profile[1],
+                      'length': depth_profile[2]}
+                st.dataframe(df)
 
         else:
             pass
