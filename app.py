@@ -12,6 +12,7 @@ from port_mapper.utils import import_ais_data
 
 FIGURE_WIDTH = 1000
 
+# TODO: Add more methods to calculate quay profile. Calculate the depth at 10, 20, 30, 40 meters from the quay.
 
 @st.cache
 def load_terminal(terminal: str):
@@ -64,7 +65,7 @@ if __name__ == "__main__":
             # --------- Record observed drafts -----------------------------------------------------------------------
             st.sidebar.header('Map')
             draft_type = st.sidebar.selectbox(
-                'Select draft type: (slow)',
+                'Select draft type:',
                 ['static', 'dynamic'])
             resolution = st.sidebar.number_input('Map resolution [m]', min_value=2, max_value=50, value=10)
 
@@ -73,11 +74,11 @@ if __name__ == "__main__":
                                       resolution, 100, draft_type)
 
             # --------- Calculate the map ------------------------------------------------------------------------------
-            map_type = st.sidebar.selectbox('Select property to map:',
+            map_type = st.sidebar.selectbox('Select property to map: (fast)',
                                             ['depth', 'count'])
 
             if map_type == 'depth':
-                draft_agg = st.sidebar.selectbox('Select a map type',
+                draft_agg = st.sidebar.selectbox('Select a map type: (fast)',
                                                  ['max', '95%', '90%', '75%'],
                                                  index=1)
                 if draft_agg == 'max':
@@ -106,14 +107,14 @@ if __name__ == "__main__":
             # ---------- Calculate the quay profile --------------------------------------------------------------------
             st.sidebar.header('Quay profile')
             quay_codes = [quay.code for quay in terminal.quays]
-            quay_code = st.sidebar.selectbox('Select a quay to analyse', quay_codes)
+            quay_code = st.sidebar.selectbox('Select a quay to analyse: (fast)', quay_codes)
             quay_idx = quay_codes.index(quay_code)
 
             if map_type=='depth':
-                depth_unit = st.sidebar.number_input('Unit', min_value=0.2, max_value=2., value=1., step=0.2)
-                smooth_width = st.sidebar.number_input('Smoothing', min_value=1, max_value=10, value=3, step=1)
-                merge_width = st.sidebar.number_input('Merging', min_value=0, max_value=10, value=2, step=1)
-                plateau_width = st.sidebar.number_input('Plateau', min_value=0, max_value=10, value=2, step=1)
+                depth_unit = st.sidebar.number_input('Unit [m]', min_value=0.2, max_value=2., value=1., step=0.2)
+                smooth_width = st.sidebar.number_input('Smoothing [points]', min_value=1, max_value=10, value=3, step=1)
+                merge_width = st.sidebar.number_input('Merging [points]', min_value=0, max_value=10, value=2, step=1)
+                plateau_width = st.sidebar.number_input('Plateau [points]', min_value=0, max_value=10, value=2, step=1)
 
             quay = terminal.quays[quay_idx]
 
@@ -199,11 +200,13 @@ if __name__ == "__main__":
             st.write(fig1)
 
             fig2 = go.Figure()
-            fig2.add_trace(go.Scatter(x=quay_position, y=quay_depth,
+            fig2.add_trace(go.Scatter(x=quay_position,
+                                      y=quay_depth,
                                       mode='lines',
                                       name='raw'))
             if map_type == 'depth':
-                fig2.add_trace(go.Scatter(x=quay_position, y=quay_depth_cleaned,
+                fig2.add_trace(go.Scatter(x=quay_position,
+                                          y=quay_depth_cleaned,
                                           mode='lines+markers',
                                           name='clean'))
             fig2.update_yaxes(title=value_str)

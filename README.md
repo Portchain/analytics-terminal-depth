@@ -3,9 +3,8 @@
 1. Insert password. Get from Sebastian
 2. Select terminal of interest in dropdown menu. Wait for data to be loaded. The data range can be extended to improve \
 the map quality at the cost of increased computation time.
-3. Somthing 
+3. Select how the map should be calculated 
     1. Draft Type: **static** to use draft of vessels while at berth. **dynamic** to use draft of vessels at all times    
-3. Select how the map should be calculated
     1. Resolution: Increase for finer details and slower computation
     2. Property to map: **Depth** or **count**
     3. Select how depth is calculated from drafts: **max** depth is the maximal of drafts observed. This is sensitive \
