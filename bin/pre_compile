@@ -1,5 +1,9 @@
 # !/bin/bash
 
-echo "Generate myrepo to requirements.txt"
+echo "Running pre compile script"
+echo "Add soe-portcall-detection repo to  requirements.txt"
 MY_REPO_GIT="git+https://${GITHUB_TOKEN}@github.com/Portchain/soe-portcall-detection.git@release_0.1#egg=portcall"
-echo MY_REPO_GIT >> requirements.txt
+echo "\n" >> requirements.txt
+echo $MY_REPO_GIT >> requirements.txt
+
+echo "Ended pre compile script"
