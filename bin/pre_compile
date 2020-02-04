@@ -2,6 +2,8 @@
 
 echo "Running pre compile script"
 echo "Insert GITHUB_TOKEN in requirements.txt"
-perl -pe 's/\$\{(GITHUB_TOKEN)\}/$ENV{$1}/g' < requirements.txt > requirements.txt
+perl -pe 's/\$\{(GITHUB_TOKEN)\}/$ENV{$1}/g' < requirements.txt > new_requirements.txt
+cp requirements.txt old_requirements.txt
+cp new_requirements.txt requirements.txt
 
 echo "Ended pre compile script"
