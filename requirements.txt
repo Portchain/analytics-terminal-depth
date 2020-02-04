@@ -3,4 +3,4 @@ plotly==4.5.0
 numpy==1.17.3
 pandas==0.25.3
 scikit-image==0.16.2
--e git+https://beee24238e4e5d9b49921339a43b8ea8e048c16e@github.com/Portchain/soe-portcall-detection.git@release_0.1#egg=portcall
+#-e git+https://beee24238e4e5d9b49921339a43b8ea8e048c16e@github.com/Portchain/soe-portcall-detection.git@release_0.1#egg=portcall
