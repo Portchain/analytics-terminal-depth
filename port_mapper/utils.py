@@ -1,3 +1,5 @@
+import itertools
+
 from portcall.data import AISTable
 import logging
 import numpy as np
@@ -5,8 +7,7 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
-def import_ais_data(terminal, start_time, end_time):
-    # Create a grid for the map
+def import_ais_data(terminal, start_time, end_time, limit=None):
     lon1, lat1 = np.min(terminal.outline, axis=0)
     lon2, lat2 = np.max(terminal.outline, axis=0)
     logger.info('Load AIS data')
@@ -15,5 +16,9 @@ def import_ais_data(terminal, start_time, end_time):
                                   lon_lim=(lon1, lon2),
                                   start_time=start_time,
                                   end_time=end_time)
-        tracks = list(tracks)
+        if limit is None:
+            tracks = list(tracks)
+        else:
+            tracks = list(itertools.islice(tracks, limit))
+
     return tracks

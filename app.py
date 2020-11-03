@@ -11,8 +11,11 @@ from port_mapper.depth_profile import convert_curve_to_sections, clean_depth_pro
 from port_mapper.utils import import_ais_data
 
 FIGURE_WIDTH = 1000
+TRACK_LIMIT = 1000
 
 # TODO: Add more methods to calculate quay profile. Calculate the depth at 10, 20, 30, 40 meters from the quay.
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 @st.cache
 def load_terminal(terminal: str):
@@ -24,12 +27,15 @@ def load_terminal(terminal: str):
 
 @st.cache
 def load_ais_data(terminal: str, ais_start_time: datetime, ais_end_time: datetime):
-    tracks = import_ais_data(terminal, ais_start_time, ais_end_time)
+    logger.info('loading ais data for %s to %s', ais_start_time, ais_end_time)
+    tracks = import_ais_data(terminal, ais_start_time, ais_end_time, limit=TRACK_LIMIT)
+    logger.info('got %s tracks', len(tracks))
     return tracks
 
 
 @st.cache(hash_funcs={np.ufunc: str})
 def calculate_drafts(tracks, terminal, resolution, map_buffer, map_type):
+    logger.info('calculating drafts for %s', terminal)
     return create_draft_histogram_map(tracks,
                                       terminal,
                                       resolution=resolution,
@@ -39,6 +45,7 @@ def calculate_drafts(tracks, terminal, resolution, map_buffer, map_type):
 
 @st.cache
 def load_all_terminal_names():
+    logger.info('loading terminal names')
     with TerminalTable() as tdb:
         df = tdb.fetch_terminal_data()
         df = df.dropna(subset=['outline'])
@@ -55,8 +62,8 @@ if __name__ == "__main__":
         terminal_name = st.sidebar.selectbox('Select a terminal:  (slow)', [''] + all_terminal_names, index=0)
 
         if not terminal_name == '':
-            ais_start_time = st.sidebar.date_input('Start date for AIS data: (slow)', datetime.date(2019, 11, 1))
-            ais_end_time = st.sidebar.date_input('End date for AIS data: (slow)', datetime.date(2019, 12, 1))
+            ais_start_time = st.sidebar.date_input('Start date for AIS data: (slow)', datetime.date(2020, 9, 1))
+            ais_end_time = st.sidebar.date_input('End date for AIS data: (slow)', datetime.date(2020, 10, 1))
 
             terminal = load_terminal(terminal_name)
             st.title('Depth analysis of  %s' % terminal_name)
@@ -110,7 +117,7 @@ if __name__ == "__main__":
             quay_code = st.sidebar.selectbox('Select a quay to analyse: (fast)', quay_codes)
             quay_idx = quay_codes.index(quay_code)
 
-            if map_type=='depth':
+            if map_type == 'depth':
                 depth_unit = st.sidebar.number_input('Unit [m]', min_value=0.2, max_value=2., value=1., step=0.2)
                 smooth_width = st.sidebar.number_input('Smoothing [points]', min_value=1, max_value=10, value=3, step=1)
                 merge_width = st.sidebar.number_input('Merging [points]', min_value=0, max_value=10, value=2, step=1)
@@ -158,7 +165,7 @@ if __name__ == "__main__":
                                                 hoverinfo='text'),
                                row=1, col=1)
             fig1.update_traces(textposition='top center')
-            center = terminal.terminal_center
+            center = terminal.position
             fig1.update_layout(mapbox=dict(center=dict(lon=center[0], lat=center[1]),
                                            style="open-street-map",
                                            zoom=12),

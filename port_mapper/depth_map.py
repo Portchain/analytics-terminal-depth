@@ -1,3 +1,4 @@
+from portcall.detection import TerminalBerthProbabilityEstimator
 from tqdm import tqdm as tqdm
 import logging
 from typing import List
@@ -7,13 +8,11 @@ from matplotlib import pyplot as plt
 from scipy import interpolate
 from skimage.draw import polygon2mask
 
-from portcall.terminal import Terminal, Quay
+from portcall.location import Terminal, Quay
 from portcall.vessel import VesselTrack
-from portcall.utils import geodetic_to_enu, enu_to_geodetic, spherical_distance_exact
-from portcall.portcall import BerthProbability
+from portcall.utils import geodetic_to_enu, enu_to_geodetic, spherical_distance
 
 logger = logging.getLogger(__name__)
-
 
 class MapGrid:
     def __init__(self, first_axis, second_axis, data: (dict, None) = None):
@@ -131,8 +130,8 @@ def create_map_grid_of_terminal(terminal: Terminal, buffer=50, resolution=10):
     lon2, lat2 = enu_to_geodetic(x2 + buffer, y2 + buffer, lon_ref=lon1, lat_ref=lat1)
     logger.debug("Defining grid betweeen (%s,%s) and (%s,%s)" % (lon1, lat1, lon2, lat2))
 
-    map_width = spherical_distance_exact(np.array([lon1, lat1]), np.array([lon2, lat1]))
-    map_height = spherical_distance_exact(np.array([lon1, lat1]), np.array([lon1, lat2]))
+    map_width = spherical_distance(np.array([lon1, lat1]), np.array([lon2, lat1]))
+    map_height = spherical_distance(np.array([lon1, lat1]), np.array([lon1, lat2]))
     n_lon = np.floor(map_width / resolution)
     n_lat = np.floor(map_height / resolution)
     logger.info('Calculating grid on map of size %d x %d with resolution of %.1f m' % (n_lon, n_lat, resolution))
@@ -228,7 +227,6 @@ def create_draft_histogram_map(tracks: List[VesselTrack],
     drafts = DraftContainer(m, len(tracks))
 
     for i, track in tqdm(enumerate(tracks), total=len(tracks)):
-
         draft_value = np.nanmax(track.draft)
         if not draft_value:
             draft_value = 1
@@ -243,14 +241,16 @@ def create_draft_histogram_map(tracks: List[VesselTrack],
             drafts.insert_mask(i, dynamic_footprint, draft_value)
         else:
 
-            bp = BerthProbability(track, terminal)
-            sub = track[bp.is_points_berthed()]
+            bp = TerminalBerthProbabilityEstimator(terminal)
+
+            sub = track[bp.are_points_in_event(track)]
             if len(sub) > 0:
-                polygons = [v.get_vessel_footprint(buffer=loa_buffer / 2) for v in sub.get_vessel_generator()]
-                # v = sub.get_aggregated_vessel()  # vessel with median properties  # TODO: why does it make middle quay in Genoa disappear in depth map.
+                v = sub.get_aggregated_vessel()
+                polygon = v.get_vessel_footprint(buffer=loa_buffer / 2)
+                # v = sub.get_aggregated_vessel()  # vessel with median properties
                 # v = sub.get_vessel_at_index(0)
                 # polygons = [v.get_vessel_footprint(buffer=loa_buffer / 2)]
-                static_footprint = m.mask_of_polygons(polygons)
+                static_footprint = m.mask_of_polygons([polygon])
 
                 drafts.insert_mask(i, static_footprint, draft_value)
 
