@@ -11,7 +11,7 @@ from port_mapper.depth_profile import convert_curve_to_sections, clean_depth_pro
 from port_mapper.utils import import_ais_data
 
 FIGURE_WIDTH = 1000
-TRACK_LIMIT = 1000
+TRACKS_LIMIT = os.getenv('TRACKS_LIMIT', None)
 
 # TODO: Add more methods to calculate quay profile. Calculate the depth at 10, 20, 30, 40 meters from the quay.
 logger = logging.getLogger(__name__)
@@ -28,7 +28,7 @@ def load_terminal(terminal: str):
 @st.cache
 def load_ais_data(terminal: str, ais_start_time: datetime, ais_end_time: datetime):
     logger.info('loading ais data for %s to %s', ais_start_time, ais_end_time)
-    tracks = import_ais_data(terminal, ais_start_time, ais_end_time, limit=TRACK_LIMIT)
+    tracks = import_ais_data(terminal, ais_start_time, ais_end_time, limit=TRACKS_LIMIT)
     logger.info('got %s tracks', len(tracks))
     return tracks
 
