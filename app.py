@@ -11,7 +11,7 @@ from port_mapper.depth_profile import convert_curve_to_sections, clean_depth_pro
 from port_mapper.utils import import_ais_data
 
 FIGURE_WIDTH = 1000
-TRACKS_LIMIT = os.getenv('TRACKS_LIMIT', None)
+TRACKS_LIMIT = int(os.getenv('TRACKS_LIMIT')) if os.getenv('TRACKS_LIMIT') else None
 
 # TODO: Add more methods to calculate quay profile. Calculate the depth at 10, 20, 30, 40 meters from the quay.
 logger = logging.getLogger(__name__)
