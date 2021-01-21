@@ -220,7 +220,7 @@ if __name__ == "__main__":
             fig2.update_xaxes(title='Quay Position [m]')
             fig2.update_layout(width=FIGURE_WIDTH, height=FIGURE_WIDTH / 2)
             if map_type == 'depth':
-                fig2.update_yaxes(autorange='reversed')
+                fig2.update_yaxes(autorange='reversed', range=[0, 25])
             st.write(fig2)
 
             if map_type == 'depth':
